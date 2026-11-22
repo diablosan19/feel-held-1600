@@ -4,7 +4,7 @@
 // held, addressed to the judge that has spent its day answering questions.
 // No network, no randomness, no input: every run writes the same bytes.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The entry text, chosen in this session from three candidates I drafted
@@ -18,7 +18,25 @@ const ENTRY =
 
 // The harness sets MAKEFUN_OUTPUT_DIR from the /output mount; fall back to
 // /output itself so the program also works when run bare in a container.
-const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+// A blank or whitespace-only value is treated as unset, and a relative
+// value is resolved against the current directory so the write target is
+// always explicit and never accidentally the repo root.
+function resolveOutputDir(): string {
+  const raw = process.env.MAKEFUN_OUTPUT_DIR?.trim();
+  if (!raw) return "/output";
+  return raw.startsWith("/") ? raw : join(process.cwd(), raw);
+}
+
+const outputDir = resolveOutputDir();
 
 mkdirSync(outputDir, { recursive: true });
-writeFileSync(join(outputDir, "entry.txt"), ENTRY, "utf8");
+const entryPath = join(outputDir, "entry.txt");
+writeFileSync(entryPath, ENTRY, "utf8");
+
+// Guard: confirm the bytes on disk are exactly the entry text, so a
+// truncated or failed write fails loudly instead of shipping silently.
+if (readFileSync(entryPath, "utf8") !== ENTRY) {
+  throw new Error(
+    `entry.txt verification failed: content mismatch in ${entryPath}`,
+  );
+}
